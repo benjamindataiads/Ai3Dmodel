@@ -5,7 +5,7 @@ buildTarget = "production"
 
 [deploy]
 healthcheckPath = "/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 120
 startCommand = "/opt/conda/bin/alembic upgrade head && /opt/conda/bin/uvicorn app.main:app --host 0.0.0.0 --port $PORT"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
