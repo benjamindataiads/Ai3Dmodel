@@ -60,8 +60,6 @@ let resizeObserver: ResizeObserver | null = null
 let currentLoadId = 0 // Track current load to cancel stale requests
 let raycaster = new THREE.Raycaster()
 let mouse = new THREE.Vector2()
-let gridPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
-
 const displayUnit = computed(() => settingsStore.unit)
 
 function formatDimension(valueMm: number): string {
@@ -894,7 +892,7 @@ watch(displayUnit, () => {
         <div>
           <label class="text-xs text-slate-400 mb-1 block">Dimensions</label>
           <div class="grid grid-cols-2 gap-2">
-            <div v-for="(value, key) in selectedShape.params" :key="key" class="space-y-0.5">
+            <div v-for="(_value, key) in selectedShape.params" :key="key" class="space-y-0.5">
               <label v-if="key !== 'segments'" class="text-[10px] text-slate-500 capitalize">{{ key }}</label>
               <input
                 v-if="key !== 'segments'"

@@ -42,6 +42,7 @@ export interface PartSummary {
   id: string
   name: string
   status: string
+  code?: string | null
 }
 
 export interface ProjectListItem {
