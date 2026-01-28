@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cad3d
+      POSTGRES_PASSWORD: cad3d
+      POSTGRES_DB: cad3d
+    ports:
+      - "5433:5432"
+    volumes:
+      - cad3d_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cad3d"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend-dev
+    ports:
+      - "8042:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cad3d:cad3d@db:5432/cad3d
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-openai}
+      DEBUG: "true"
+      CORS_ORIGINS: '["http://localhost:5174"]'
+    volumes:
+      - ./backend:/app
+      - cad3d_temp:/tmp/cad3d
+    depends_on:
+      db:
+        condition: service_healthy
+    command: /opt/conda/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5174:5173"
+    environment:
+      VITE_API_URL: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    command: npm run dev -- --host
+
+volumes:
+  cad3d_postgres_data:
+  cad3d_temp:
