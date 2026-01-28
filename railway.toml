@@ -6,6 +6,6 @@ buildTarget = "production"
 [deploy]
 healthcheckPath = "/health"
 healthcheckTimeout = 120
-startCommand = "/opt/conda/bin/python -c \"print('PORT=' + __import__('os').environ.get('PORT', 'NOT SET')); print('DB=' + __import__('os').environ.get('DATABASE_URL', 'NOT SET')[:50])\" && /opt/conda/bin/alembic upgrade head 2>&1 && /opt/conda/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+startCommand = "/opt/conda/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
