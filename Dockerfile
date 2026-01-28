@@ -4,12 +4,12 @@ FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Install dependencies
-COPY frontend/package*.json ./
-RUN npm ci
+COPY frontend/package.json frontend/yarn.lock ./
+RUN yarn install --frozen-lockfile
 
 # Build frontend
 COPY frontend/ ./
-RUN npm run build
+RUN yarn build
 
 # Stage 2: Backend development (for docker-compose)
 FROM mambaorg/micromamba:1.5-jammy AS backend-dev
