@@ -9,7 +9,7 @@ from alembic import context
 
 from app.config import settings
 from app.database import Base
-from app.models import Project, Part  # Import models to register them
+from app.models import Section, Project, Part, PartVersion  # Import all models to register them
 
 config = context.config
 
