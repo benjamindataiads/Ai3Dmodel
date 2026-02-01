@@ -34,7 +34,7 @@ class Part(Base):
     parameters: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     bounding_box: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[PartStatus] = mapped_column(
-        Enum(PartStatus),
+        Enum(PartStatus, values_callable=lambda x: [e.value for e in x]),
         default=PartStatus.DRAFT,
         nullable=False,
     )
