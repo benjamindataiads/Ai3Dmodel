@@ -57,6 +57,15 @@ function selectModel(modelId: string) {
         
         <nav class="flex items-center gap-2">
           <router-link 
+            to="/composer" 
+            class="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyber-600/80 to-accent-600/80 text-white text-sm rounded-lg hover:from-cyber-500 hover:to-accent-500 transition-all shadow-cyber"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span class="hidden sm:inline">Composer IA</span>
+          </router-link>
+          <router-link 
             to="/docs" 
             class="hidden sm:flex items-center gap-2 px-3 py-2 text-slate-400 hover:text-cyber-400 text-sm rounded-lg hover:bg-white/5 transition-all"
           >

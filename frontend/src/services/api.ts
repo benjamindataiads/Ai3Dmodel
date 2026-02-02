@@ -305,6 +305,27 @@ export async function generateProject(
   return response.data
 }
 
+export interface ImageData {
+  data: string
+  mime_type: string
+  name: string
+}
+
+export async function generateProjectWithImages(
+  prompt: string,
+  images: ImageData[],
+  provider?: LLMProvider,
+  model?: string | null
+): Promise<ProjectGenerateResponse> {
+  const response = await api.post('/projects/generate-with-images', {
+    prompt,
+    images,
+    provider,
+    model: model || undefined
+  })
+  return response.data
+}
+
 // Agent-based generation
 export interface AgentMessage {
   role: string

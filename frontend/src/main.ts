@@ -17,6 +17,11 @@ const routes = [
     component: () => import('./components/ProjectView.vue'),
   },
   {
+    path: '/composer',
+    name: 'composer',
+    component: () => import('./components/AIComposer.vue'),
+  },
+  {
     path: '/docs',
     name: 'docs',
     component: () => import('./components/Documentation.vue'),

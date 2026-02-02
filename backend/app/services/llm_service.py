@@ -240,6 +240,79 @@ Modifications demandées: {prompt}"""
         
         else:
             raise ValueError(f"Unknown provider: {provider}")
+    
+    async def generate_with_vision(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        images: list[tuple[str, str]],  # List of (base64_data, mime_type)
+        provider: Literal["openai", "anthropic"],
+        model: str | None = None,
+        max_tokens: int = 8000,
+    ) -> str:
+        """Generate response from LLM with image input (vision)."""
+        if provider == "openai":
+            client = self._get_openai_client()
+            model_to_use = model if model and model in OPENAI_MODELS else DEFAULT_OPENAI_MODEL
+            
+            # Build content with images
+            content = []
+            for base64_data, mime_type in images:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime_type};base64,{base64_data}",
+                        "detail": "high"
+                    }
+                })
+            content.append({
+                "type": "text",
+                "text": user_prompt
+            })
+            
+            response = await client.chat.completions.create(
+                model=model_to_use,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content},
+                ],
+                temperature=0.3,
+                max_tokens=max_tokens,
+            )
+            return response.choices[0].message.content
+        
+        elif provider == "anthropic":
+            client = self._get_anthropic_client()
+            model_to_use = model if model and model in ANTHROPIC_MODELS else DEFAULT_ANTHROPIC_MODEL
+            
+            # Build content with images for Anthropic
+            content = []
+            for base64_data, mime_type in images:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime_type,
+                        "data": base64_data,
+                    }
+                })
+            content.append({
+                "type": "text",
+                "text": user_prompt
+            })
+            
+            response = await client.messages.create(
+                model=model_to_use,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": content},
+                ],
+            )
+            return response.content[0].text
+        
+        else:
+            raise ValueError(f"Unknown provider: {provider}")
 
 
 llm_service = LLMService()

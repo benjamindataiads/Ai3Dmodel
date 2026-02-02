@@ -597,3 +597,190 @@ async def generate_project(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate project: {str(e)}"
         )
+
+
+# Image-based project generation
+class ImageData(BaseModel):
+    data: str  # Base64 encoded image data
+    mime_type: str
+    name: str
+
+
+class ProjectGenerateWithImagesRequest(BaseModel):
+    prompt: str = ""
+    images: list[ImageData] = []
+    provider: Literal["openai", "anthropic"] | None = None
+    model: str | None = None
+
+
+@router.post("/projects/generate-with-images", response_model=ProjectGenerateResponse)
+async def generate_project_with_images(
+    request: ProjectGenerateWithImagesRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a complete project with multiple parts from images and description."""
+    from app.prompts.project_system import PROJECT_SYSTEM_PROMPT
+    from sqlalchemy.orm import selectinload
+    
+    provider = request.provider or settings.default_llm_provider
+    
+    if not request.prompt and not request.images:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide a description or images"
+        )
+    
+    try:
+        # Build prompt with image context
+        prompt_parts = []
+        if request.prompt:
+            prompt_parts.append(f"Description du projet: {request.prompt}")
+        
+        if request.images:
+            prompt_parts.append(f"\n{len(request.images)} image(s) de référence fournie(s):")
+            for i, img in enumerate(request.images):
+                prompt_parts.append(f"  - Image {i+1}: {img.name}")
+            prompt_parts.append("\nAnalyse ces images pour comprendre la forme, les proportions et les fonctionnalités souhaitées.")
+        
+        full_prompt = "\n".join(prompt_parts)
+        
+        # Prepare images for vision
+        image_data = []
+        for img in request.images:
+            image_data.append((img.data, img.mime_type))
+        
+        # Generate project structure via LLM with vision
+        if image_data:
+            response = await llm_service.generate_with_vision(
+                full_prompt,
+                PROJECT_SYSTEM_PROMPT,
+                image_data,
+                provider,
+                model=request.model
+            )
+        else:
+            response = await llm_service.generate_raw(
+                full_prompt,
+                PROJECT_SYSTEM_PROMPT,
+                provider,
+                model=request.model
+            )
+        
+        # Extract JSON from response - try multiple methods
+        json_str = None
+        
+        # Method 1: Try to extract from ```json ... ``` block
+        json_block_match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', response)
+        if json_block_match:
+            json_str = json_block_match.group(1)
+        
+        # Method 2: Find the outermost JSON object
+        if not json_str:
+            start_idx = response.find('{')
+            if start_idx != -1:
+                depth = 0
+                end_idx = start_idx
+                in_string = False
+                escape_next = False
+                for i, char in enumerate(response[start_idx:], start_idx):
+                    if escape_next:
+                        escape_next = False
+                        continue
+                    if char == '\\':
+                        escape_next = True
+                        continue
+                    if char == '"' and not escape_next:
+                        in_string = not in_string
+                    if not in_string:
+                        if char == '{':
+                            depth += 1
+                        elif char == '}':
+                            depth -= 1
+                            if depth == 0:
+                                end_idx = i
+                                break
+                json_str = response[start_idx:end_idx + 1]
+        
+        if not json_str:
+            raise ValueError("No JSON found in LLM response")
+        
+        data = json.loads(json_str)
+        project_name = data.get("project_name", "Nouveau projet")
+        parts_data = data.get("parts", [])
+        
+        if not parts_data:
+            raise ValueError("No parts generated")
+        
+        # Create project
+        project = Project(name=project_name)
+        db.add(project)
+        await db.flush()
+        
+        # Create and process each part
+        generated_parts = []
+        for part_data in parts_data:
+            part_name = part_data.get("name", "Part")
+            part_code = part_data.get("code", "")
+            part_desc = part_data.get("description", "")
+            
+            part = Part(
+                project_id=project.id,
+                name=part_name,
+                code=part_code,
+                prompt=part_desc,
+            )
+            
+            try:
+                params = parameter_service.extract_parameters(part_code)
+                part.parameters = params
+                result = await cad_service.execute_code(part_code)
+                
+                if result.success:
+                    part.bounding_box = result.bounding_box
+                    part.status = PartStatus.GENERATED
+                    part.error_message = None
+                    generated_parts.append(GeneratedPartInfo(
+                        name=part_name,
+                        description=part_desc,
+                        status="generated"
+                    ))
+                else:
+                    part.status = PartStatus.ERROR
+                    part.error_message = result.error
+                    generated_parts.append(GeneratedPartInfo(
+                        name=part_name,
+                        description=part_desc,
+                        status="error",
+                        error=result.error
+                    ))
+            except Exception as e:
+                part.status = PartStatus.ERROR
+                part.error_message = str(e)
+                generated_parts.append(GeneratedPartInfo(
+                    name=part_name,
+                    description=part_desc,
+                    status="error",
+                    error=str(e)
+                ))
+            
+            db.add(part)
+        
+        await db.commit()
+        
+        return ProjectGenerateResponse(
+            project_id=str(project.id),
+            project_name=project_name,
+            parts=generated_parts
+        )
+        
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid JSON in LLM response: {str(e)}"
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate project: {str(e)}"
+        )

@@ -3,8 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useProjectStore } from '@/stores/project'
 import { useSettingsStore } from '@/stores/settings'
-import { generateProject, importFile, createProject as apiCreateProject, type GeneratedPartInfo } from '@/services/api'
-import type { LLMProvider } from '@/types'
+import { importFile, createProject as apiCreateProject } from '@/services/api'
 
 const router = useRouter()
 const route = useRoute()
@@ -14,7 +13,6 @@ const settingsStore = useSettingsStore()
 // UI State
 const showNewProjectModal = ref(false)
 const showNewSectionModal = ref(false)
-const showAIComposer = ref(false)
 const showImportModal = ref(false)
 const selectedSectionId = ref<string | null>(null)
 
@@ -30,13 +28,6 @@ const importProjectName = ref('')
 const importing = ref(false)
 const importError = ref<string | null>(null)
 const importDragOver = ref(false)
-
-// AI Composer state
-const aiPrompt = ref('')
-const aiGenerating = ref(false)
-const aiError = ref<string | null>(null)
-const generatedParts = ref<GeneratedPartInfo[]>([])
-const generatedProjectId = ref<string | null>(null)
 
 // Context menu state
 const contextMenu = ref<{ show: boolean; x: number; y: number; type: 'section' | 'project'; id: string } | null>(null)
@@ -194,52 +185,6 @@ function resetImportModal() {
   importing.value = false
 }
 
-async function generateProjectWithAI() {
-  if (!aiPrompt.value.trim() || aiGenerating.value) return
-  
-  aiGenerating.value = true
-  aiError.value = null
-  generatedParts.value = []
-  generatedProjectId.value = null
-  
-  try {
-    const response = await generateProject(
-      aiPrompt.value.trim(),
-      settingsStore.llmProvider as LLMProvider,
-      settingsStore.currentModel
-    )
-    
-    generatedParts.value = response.parts
-    generatedProjectId.value = response.project_id
-    
-    await store.fetchProjects()
-  } catch (e: any) {
-    console.error('Failed to generate project:', e)
-    aiError.value = e.response?.data?.detail || e.message || "Erreur lors de la génération"
-  } finally {
-    aiGenerating.value = false
-  }
-}
-
-function openGeneratedProject() {
-  if (generatedProjectId.value) {
-    const projectId = generatedProjectId.value
-    showAIComposer.value = false
-    aiPrompt.value = ''
-    generatedParts.value = []
-    generatedProjectId.value = null
-    router.push(`/project/${projectId}`)
-  }
-}
-
-function closeAIComposer() {
-  showAIComposer.value = false
-  aiPrompt.value = ''
-  aiError.value = null
-  generatedParts.value = []
-  generatedProjectId.value = null
-}
-
 function showContextMenu(e: MouseEvent, type: 'section' | 'project', id: string) {
   e.preventDefault()
   contextMenu.value = { show: true, x: e.clientX, y: e.clientY, type, id }
@@ -365,15 +310,15 @@ function formatDate(dateStr: string): string {
           <p class="text-slate-400 text-sm">{{ displayedProjects.length }} projet{{ displayedProjects.length !== 1 ? 's' : '' }}</p>
         </div>
         <div class="flex gap-3">
-          <button
-            @click="showAIComposer = true"
+          <router-link
+            to="/composer"
             class="group bg-gradient-to-r from-cyber-600 to-accent-600 hover:from-cyber-500 hover:to-accent-500 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-cyber"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
             <span class="font-medium">Composer IA</span>
-          </button>
+          </router-link>
           <button
             @click="showImportModal = true; resetImportModal()"
             class="glass cyber-border text-slate-200 hover:text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-all hover:border-primary-400/50"
@@ -416,15 +361,15 @@ function formatDate(dateStr: string): string {
         <h3 class="text-lg font-semibold text-white mb-2">Aucun projet</h3>
         <p class="text-slate-400 mb-6">Créez votre premier projet dans cette section</p>
         <div class="flex gap-3 justify-center">
-          <button
-            @click="showAIComposer = true"
+          <router-link
+            to="/composer"
             class="bg-gradient-to-r from-cyber-600 to-accent-600 hover:from-cyber-500 hover:to-accent-500 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-cyber"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
             Générer avec l'IA
-          </button>
+          </router-link>
           <button
             @click="showNewProjectModal = true; createError = null"
             class="glass cyber-border text-slate-200 hover:text-white px-5 py-2.5 rounded-xl transition-all"
@@ -632,90 +577,6 @@ function formatDate(dateStr: string): string {
               </button>
             </div>
           </form>
-        </div>
-      </div>
-    </Teleport>
-
-    <!-- AI Composer Modal (same as before, simplified) -->
-    <Teleport to="body">
-      <div v-if="showAIComposer" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-        <div class="glass rounded-2xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-hidden flex flex-col shadow-cyber-lg" @click.stop>
-          <div class="px-6 py-4 border-b border-white/5 bg-gradient-to-r from-cyber-900/30 to-accent-900/30">
-            <div class="flex items-center gap-3">
-              <div class="w-12 h-12 bg-gradient-to-r from-cyber-500 to-accent-500 rounded-xl flex items-center justify-center shadow-cyber">
-                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-              </div>
-              <div>
-                <h2 class="text-xl font-semibold text-white">Composer IA</h2>
-                <p class="text-sm text-slate-400">Décrivez votre projet, l'IA créera toutes les pièces</p>
-              </div>
-            </div>
-          </div>
-          
-          <div class="flex-1 overflow-y-auto p-6">
-            <div v-if="!generatedProjectId" class="space-y-4">
-              <textarea
-                v-model="aiPrompt"
-                placeholder="Ex: Un support de téléphone avec une base rectangulaire de 80x100mm..."
-                rows="5"
-                class="w-full px-4 py-3 rounded-xl resize-none"
-                :disabled="aiGenerating"
-              ></textarea>
-              
-              <div v-if="aiError" class="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-red-400 text-sm">
-                {{ aiError }}
-              </div>
-            </div>
-            
-            <div v-else class="space-y-4">
-              <div class="bg-cyber-500/10 border border-cyber-500/30 rounded-xl p-4">
-                <div class="flex items-center gap-2 text-cyber-400">
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span class="font-medium">Projet généré avec succès !</span>
-                </div>
-              </div>
-              
-              <div class="space-y-2">
-                <div
-                  v-for="part in generatedParts"
-                  :key="part.name"
-                  :class="[
-                    'flex items-center gap-3 p-3 rounded-xl border',
-                    part.status === 'generated' ? 'bg-cyber-500/10 border-cyber-500/30' : 'bg-red-500/10 border-red-500/30'
-                  ]"
-                >
-                  <span class="font-medium text-white">{{ part.name }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div class="px-6 py-4 border-t border-white/5 bg-dark-900/50 flex gap-3">
-            <button @click="closeAIComposer" class="flex-1 px-4 py-3 glass cyber-border text-slate-300 rounded-xl">
-              {{ generatedProjectId ? 'Fermer' : 'Annuler' }}
-            </button>
-            
-            <button
-              v-if="!generatedProjectId"
-              @click="generateProjectWithAI"
-              :disabled="!aiPrompt.trim() || aiGenerating"
-              class="flex-1 px-4 py-3 bg-gradient-to-r from-cyber-600 to-accent-600 text-white rounded-xl disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              <svg v-if="aiGenerating" class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-              </svg>
-              {{ aiGenerating ? 'Génération...' : 'Générer' }}
-            </button>
-            
-            <button v-else @click="openGeneratedProject" class="flex-1 px-4 py-3 bg-gradient-to-r from-cyber-600 to-primary-600 text-white rounded-xl">
-              Ouvrir le projet
-            </button>
-          </div>
         </div>
       </div>
     </Teleport>
