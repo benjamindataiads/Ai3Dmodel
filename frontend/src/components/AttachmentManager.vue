@@ -7,6 +7,7 @@ export interface Attachment {
   type: 'image' | 'sketch'
   dataUrl: string
   name: string
+  mimeType: string
   timestamp: number
 }
 
@@ -67,6 +68,7 @@ function handleFileSelect(event: Event) {
         type: 'image',
         dataUrl,
         name: file.name,
+        mimeType: file.type || 'image/png',
         timestamp: Date.now(),
       })
     }
@@ -114,6 +116,7 @@ function saveSketch() {
       attachments.value[index] = {
         ...attachments.value[index],
         dataUrl,
+        mimeType: 'image/png',
         timestamp: Date.now(),
       }
     }
@@ -125,6 +128,7 @@ function saveSketch() {
       type: 'sketch',
       dataUrl,
       name: `Sketch ${sketchNumber}`,
+      mimeType: 'image/png',
       timestamp: Date.now(),
     })
   }

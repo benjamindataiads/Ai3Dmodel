@@ -2,13 +2,11 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useProjectStore } from '@/stores/project'
-import { useSettingsStore } from '@/stores/settings'
 import { importFile, createProject as apiCreateProject } from '@/services/api'
 
 const router = useRouter()
 const route = useRoute()
 const store = useProjectStore()
-const settingsStore = useSettingsStore()
 
 // UI State
 const showNewProjectModal = ref(false)

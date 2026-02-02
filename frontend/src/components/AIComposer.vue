@@ -2,18 +2,8 @@
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useSettingsStore } from '@/stores/settings'
-import { useProjectStore } from '@/stores/project'
-import AttachmentManager from './AttachmentManager.vue'
+import AttachmentManager, { type Attachment } from './AttachmentManager.vue'
 import SketchCanvas from './SketchCanvas.vue'
-import type { LLMProvider } from '@/types'
-
-interface Attachment {
-  id: string
-  type: 'image' | 'sketch'
-  dataUrl: string
-  name: string
-  mimeType: string
-}
 
 interface Message {
   id: string
@@ -34,7 +24,6 @@ interface Requirements {
 
 const router = useRouter()
 const settingsStore = useSettingsStore()
-const projectStore = useProjectStore()
 
 // Session state
 const sessionId = ref<string | null>(null)
@@ -48,7 +37,6 @@ const generatedProjectId = ref<string | null>(null)
 const userInput = ref('')
 const loading = ref(false)
 const error = ref<string | null>(null)
-const activeTab = ref<'chat' | 'sketch' | 'attachments'>('chat')
 const showSketchModal = ref(false)
 
 // Attachments
@@ -89,7 +77,7 @@ function handleAttachmentsChange(newAttachments: Attachment[]) {
 function addSketchToAttachments() {
   if (!sketchCanvas.value) return
   
-  const dataUrl = sketchCanvas.value.toDataURL()
+  const dataUrl = sketchCanvas.value.save()
   if (!dataUrl) return
   
   const newAttachment: Attachment = {
@@ -97,7 +85,8 @@ function addSketchToAttachments() {
     type: 'sketch',
     dataUrl,
     name: `Croquis ${attachments.value.filter(a => a.type === 'sketch').length + 1}`,
-    mimeType: 'image/png'
+    mimeType: 'image/png',
+    timestamp: Date.now()
   }
   
   attachments.value.push(newAttachment)
