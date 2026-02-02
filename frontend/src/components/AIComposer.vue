@@ -8,10 +8,15 @@ import SketchCanvas from './SketchCanvas.vue'
 interface Message {
   id: string
   role: 'user' | 'agent'
+  type?: string  // 'user', 'agent', 'question', etc.
   agent?: string
   content: string
   timestamp: Date
   attachments?: Attachment[]
+  data?: {
+    options?: string[]
+    [key: string]: any
+  }
 }
 
 interface Requirements {
@@ -202,6 +207,11 @@ async function sendMessage() {
   } finally {
     loading.value = false
   }
+}
+
+function selectOption(option: string) {
+  userInput.value = option
+  sendMessage()
 }
 
 async function generateNow() {
@@ -468,6 +478,19 @@ onUnmounted(() => {
                   <div class="flex-1 max-w-[85%]">
                     <div class="glass rounded-2xl rounded-tl-md px-4 py-3 border border-white/5">
                       <p class="whitespace-pre-wrap text-slate-200">{{ msg.content }}</p>
+                      
+                      <!-- Question options -->
+                      <div v-if="msg.data?.options?.length" class="mt-4 flex flex-wrap gap-2">
+                        <button
+                          v-for="option in msg.data.options"
+                          :key="option"
+                          @click="selectOption(option)"
+                          :disabled="loading"
+                          class="px-4 py-2 text-sm rounded-xl bg-gradient-to-r from-cyber-500/20 to-accent-500/20 border border-cyber-500/30 hover:border-cyber-400 text-slate-200 hover:text-white transition-all disabled:opacity-50"
+                        >
+                          {{ option }}
+                        </button>
+                      </div>
                     </div>
                     <div :class="['text-xs mt-1', getAgentStyle(msg.agent || 'coordinator').color]">
                       {{ msg.agent ? msg.agent.charAt(0).toUpperCase() + msg.agent.slice(1) : 'Agent' }}
