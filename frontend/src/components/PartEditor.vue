@@ -3,9 +3,10 @@ import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import * as monaco from 'monaco-editor'
 import { useProjectStore } from '@/stores/project'
 import { useSettingsStore } from '@/stores/settings'
-import { autosavePart, getPartVersions, getVersion, restoreVersion } from '@/services/api'
+import { autosavePart, getPartVersions, getVersion, restoreVersion, generatePartWithImage, analyzeImageForDesign } from '@/services/api'
 import type { Part, VersionSummary } from '@/types'
 import ShapeBuilder from './ShapeBuilder.vue'
+import DesignChat from './DesignChat.vue'
 
 const props = defineProps<{
   part: Part | null
@@ -19,11 +20,19 @@ const store = useProjectStore()
 const settingsStore = useSettingsStore()
 
 const editorContainer = ref<HTMLDivElement | null>(null)
-const activeTab = ref<'code' | 'ai' | 'shapes'>('code')
+const activeTab = ref<'code' | 'ai' | 'chat' | 'shapes'>('code')
 const aiPrompt = ref('')
 const generating = ref(false)
 const aiMode = ref<'new' | 'edit'>('new')
 const includeContext = ref(false)
+
+// Image upload state
+const imageFile = ref<File | null>(null)
+const imagePreview = ref<string | null>(null)
+const imageInput = ref<HTMLInputElement | null>(null)
+const analyzingImage = ref(false)
+const imageAnalysis = ref<any>(null)
+const useAgents = ref(true)  // Use multi-agent system by default
 
 // Autosave state
 const autosaveEnabled = ref(true)
@@ -214,6 +223,90 @@ function handleShapeCode(code: string) {
   activeTab.value = 'code'
 }
 
+// Handle code from Design Chat
+function handleChatCode(code: string) {
+  if (editor) {
+    editor.setValue(code)
+  }
+  activeTab.value = 'code'
+  emit('update')
+}
+
+// Image upload handlers
+function triggerImageUpload() {
+  imageInput.value?.click()
+}
+
+function handleImageSelect(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  
+  if (file) {
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+    if (!allowedTypes.includes(file.type)) {
+      alert('Format non supporté. Utilisez JPG, PNG, GIF ou WebP.')
+      return
+    }
+    
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image trop volumineuse (max 10 Mo)')
+      return
+    }
+    
+    imageFile.value = file
+    
+    // Create preview
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      imagePreview.value = e.target?.result as string
+    }
+    reader.readAsDataURL(file)
+    
+    // Auto-analyze image
+    analyzeImage()
+  }
+}
+
+function removeImage() {
+  imageFile.value = null
+  imagePreview.value = null
+  imageAnalysis.value = null
+  if (imageInput.value) {
+    imageInput.value.value = ''
+  }
+}
+
+async function analyzeImage() {
+  if (!imageFile.value) return
+  
+  analyzingImage.value = true
+  imageAnalysis.value = null
+  
+  try {
+    const result = await analyzeImageForDesign(
+      imageFile.value,
+      aiPrompt.value || undefined,
+      settingsStore.llmProvider,
+      settingsStore.currentModel
+    )
+    
+    if (result.success && 'shape_description' in result.analysis) {
+      imageAnalysis.value = result.analysis
+      
+      // Auto-fill prompt if empty
+      if (!aiPrompt.value.trim()) {
+        aiPrompt.value = result.analysis.shape_description
+      }
+    }
+  } catch (e) {
+    console.error('Failed to analyze image:', e)
+  } finally {
+    analyzingImage.value = false
+  }
+}
+
 // Generate code via AI
 async function generateCode() {
   if (!props.part || !aiPrompt.value.trim()) return
@@ -221,19 +314,49 @@ async function generateCode() {
   generating.value = true
   
   try {
-    const currentCode = aiMode.value === 'edit' ? props.part.code : undefined
-    const contextParts = includeContext.value 
-      ? otherPartsWithCode.value.map(p => ({ name: p.name, code: p.code! }))
-      : undefined
+    // If image is provided, use image-based generation
+    if (imageFile.value) {
+      await generatePartWithImage(
+        props.part.id,
+        aiPrompt.value.trim(),
+        imageFile.value,
+        settingsStore.llmProvider,
+        settingsStore.currentModel,
+        true // use optimization
+      )
+      
+      // Clear image after successful generation
+      removeImage()
+    } else {
+      // Standard text-based generation
+      const currentCode = aiMode.value === 'edit' ? props.part.code : undefined
+      const contextParts = includeContext.value 
+        ? otherPartsWithCode.value.map(p => ({ name: p.name, code: p.code! }))
+        : undefined
+      
+      if (useAgents.value) {
+        // Use agent-based generation for better quality
+        await store.generateCodeWithAgents(
+          props.part.id, 
+          aiPrompt.value.trim(), 
+          settingsStore.llmProvider,
+          settingsStore.currentModel,
+          currentCode,
+          contextParts
+        )
+      } else {
+        // Standard generation
+        await store.generateCode(
+          props.part.id, 
+          aiPrompt.value.trim(), 
+          settingsStore.llmProvider,
+          settingsStore.currentModel,
+          currentCode,
+          contextParts
+        )
+      }
+    }
     
-    await store.generateCode(
-      props.part.id, 
-      aiPrompt.value.trim(), 
-      settingsStore.llmProvider,
-      settingsStore.currentModel,
-      currentCode,
-      contextParts
-    )
     aiPrompt.value = ''
     activeTab.value = 'code'
     emit('update')
@@ -328,6 +451,23 @@ function formatDate(dateStr: string): string {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
             IA
+          </span>
+        </button>
+        <button
+          :class="[
+            'px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-all',
+            activeTab === 'chat'
+              ? 'border-green-500 text-green-400'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          ]"
+          @click="activeTab = 'chat'"
+        >
+          <span class="flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            Chat IA
+            <span class="px-1.5 py-0.5 text-xs bg-green-500/20 text-green-400 rounded-full">Pro</span>
           </span>
         </button>
         <button
@@ -487,6 +627,15 @@ function formatDate(dateStr: string): string {
 
     <!-- AI Composer -->
     <div v-if="activeTab === 'ai'" class="flex-1 p-4 flex flex-col overflow-y-auto bg-dark-850">
+      <!-- Hidden file input -->
+      <input
+        ref="imageInput"
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp"
+        class="hidden"
+        @change="handleImageSelect"
+      />
+
       <!-- Mode toggle -->
       <div class="mb-4">
         <label class="block text-sm font-medium text-slate-300 mb-2">Mode</label>
@@ -528,6 +677,89 @@ function formatDate(dateStr: string): string {
         </div>
       </div>
 
+      <!-- Image upload section -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-slate-300 mb-2">Image de référence (optionnel)</label>
+        
+        <div v-if="!imagePreview" class="relative">
+          <button
+            @click="triggerImageUpload"
+            :disabled="generating"
+            class="w-full p-4 border-2 border-dashed border-white/10 rounded-xl hover:border-primary-500/50 transition-all flex flex-col items-center gap-2 text-slate-400 hover:text-slate-200"
+          >
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <span class="text-sm">Cliquez ou glissez une image</span>
+            <span class="text-xs text-slate-500">JPG, PNG, GIF, WebP (max 10 Mo)</span>
+          </button>
+        </div>
+        
+        <div v-else class="relative">
+          <div class="relative rounded-xl overflow-hidden border border-white/10">
+            <img :src="imagePreview" alt="Reference image" class="w-full h-48 object-contain bg-dark-900" />
+            <button
+              @click="removeImage"
+              class="absolute top-2 right-2 p-1.5 bg-dark-900/80 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-all"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            
+            <!-- Analysis status -->
+            <div v-if="analyzingImage" class="absolute bottom-2 left-2 px-2 py-1 bg-dark-900/80 rounded-lg text-xs text-amber-400 flex items-center gap-1.5">
+              <svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+              Analyse en cours...
+            </div>
+            <div v-else-if="imageAnalysis" class="absolute bottom-2 left-2 px-2 py-1 bg-dark-900/80 rounded-lg text-xs text-cyber-400 flex items-center gap-1.5">
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              Image analysée
+            </div>
+          </div>
+          
+          <!-- Analysis results -->
+          <div v-if="imageAnalysis" class="mt-2 p-3 bg-dark-800/50 rounded-lg border border-white/5">
+            <div class="text-xs text-slate-400 space-y-1">
+              <p><span class="text-slate-500">Forme:</span> {{ imageAnalysis.shape_description }}</p>
+              <p v-if="imageAnalysis.estimated_dimensions">
+                <span class="text-slate-500">Dimensions:</span> 
+                ~{{ imageAnalysis.estimated_dimensions.length }}×{{ imageAnalysis.estimated_dimensions.width }}×{{ imageAnalysis.estimated_dimensions.height }} mm
+              </p>
+              <p><span class="text-slate-500">Complexité:</span> 
+                <span :class="{
+                  'text-cyber-400': imageAnalysis.complexity === 'simple',
+                  'text-amber-400': imageAnalysis.complexity === 'medium',
+                  'text-red-400': imageAnalysis.complexity === 'complex'
+                }">{{ imageAnalysis.complexity }}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent mode toggle -->
+      <div class="mb-4">
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            v-model="useAgents"
+            class="w-4 h-4 text-primary-500 bg-dark-700 border-white/20 rounded focus:ring-primary-500/50"
+          />
+          <span class="text-sm text-slate-300">
+            Mode agents (qualité optimisée)
+          </span>
+        </label>
+        <p class="text-xs text-slate-500 mt-1 ml-7">
+          Plusieurs IA collaborent pour un meilleur résultat
+        </p>
+      </div>
+
       <!-- Context toggle -->
       <div v-if="otherPartsWithCode.length > 0" class="mb-4">
         <label class="flex items-center gap-3 cursor-pointer">
@@ -546,14 +778,26 @@ function formatDate(dateStr: string): string {
         <textarea
           v-model="aiPrompt"
           :disabled="generating"
-          :placeholder="aiMode === 'new' 
-            ? 'Décrivez la pièce à créer...'
-            : 'Décrivez les modifications...'"
+          :placeholder="imageFile 
+            ? 'Décrivez ou affinez la pièce à créer à partir de l\'image...'
+            : aiMode === 'new' 
+              ? 'Décrivez la pièce à créer...'
+              : 'Décrivez les modifications...'"
           class="flex-1 w-full p-4 bg-dark-800 border border-white/10 rounded-xl resize-none text-slate-200 placeholder-slate-500 focus:ring-2 focus:ring-cyber-500/50 focus:border-cyber-500/50 disabled:opacity-50 transition-all"
         ></textarea>
       </div>
 
-      <div class="mt-4 flex justify-end">
+      <div class="mt-4 flex justify-end gap-3">
+        <button
+          v-if="imageFile && !imageAnalysis && !analyzingImage"
+          @click="analyzeImage"
+          class="px-4 py-2.5 text-slate-400 hover:text-white border border-white/10 rounded-xl hover:border-white/20 transition-all flex items-center gap-2"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          Analyser
+        </button>
         <button
           @click="generateCode"
           :disabled="generating || !aiPrompt.trim()"
@@ -566,10 +810,19 @@ function formatDate(dateStr: string): string {
           <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
-          {{ generating ? 'Génération...' : 'Générer' }}
+          {{ generating ? 'Génération...' : imageFile ? 'Générer depuis image' : 'Générer' }}
         </button>
       </div>
     </div>
+
+    <!-- Design Chat (Conversational AI) -->
+    <DesignChat
+      v-if="activeTab === 'chat'"
+      class="flex-1"
+      :part-id="part?.id"
+      @code-generated="handleChatCode"
+      @close="activeTab = 'code'"
+    />
 
     <!-- Shape Builder -->
     <ShapeBuilder

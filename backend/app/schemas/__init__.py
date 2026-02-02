@@ -14,6 +14,7 @@ from app.schemas.part import (
     PartValidateResponse,
     BoundingBox,
     Parameter,
+    ContextPart,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "PartValidateResponse",
     "BoundingBox",
     "Parameter",
+    "ContextPart",
 ]

@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import init_db
-from app.routers import projects, parts, generate, export, printers, sections, versions, imports
+from app.routers import projects, parts, generate, export, printers, sections, versions, imports, conversations
 
 
 @asynccontextmanager
@@ -45,6 +45,7 @@ app.include_router(generate.router, prefix="/api", tags=["generate"])
 app.include_router(export.router, prefix="/api", tags=["export"])
 app.include_router(printers.router, prefix="/api/printers", tags=["printers"])
 app.include_router(imports.router, prefix="/api", tags=["import"])
+app.include_router(conversations.router, prefix="/api", tags=["conversations"])
 
 
 @app.get("/health")

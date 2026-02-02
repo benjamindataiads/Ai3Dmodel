@@ -4,6 +4,8 @@ import anthropic
 
 from app.config import settings
 from app.prompts.cadquery_system import CADQUERY_SYSTEM_PROMPT, CADQUERY_EDIT_PROMPT, CADQUERY_CONTEXT_PROMPT
+from app.prompts.library_patterns import get_relevant_patterns
+from app.services.validation_service import code_validator
 
 
 # Available models per provider
@@ -55,14 +57,32 @@ class LLMService:
         existing_code: str | None = None,
         context_parts: list[tuple[str, str]] | None = None,
         model: str | None = None,
+        validate: bool = True,
+        auto_correct: bool = True,
     ) -> str:
         """Generate CadQuery code from natural language prompt."""
         if provider == "openai":
-            return await self._generate_with_openai(prompt, existing_code, context_parts, model)
+            code = await self._generate_with_openai(prompt, existing_code, context_parts, model)
         elif provider == "anthropic":
-            return await self._generate_with_anthropic(prompt, existing_code, context_parts, model)
+            code = await self._generate_with_anthropic(prompt, existing_code, context_parts, model)
         else:
             raise ValueError(f"Unknown provider: {provider}")
+        
+        # Validate and potentially correct the generated code
+        if validate:
+            validation = code_validator.validate(code)
+            
+            # Apply auto-corrections if enabled and available
+            if auto_correct and validation.corrected_code:
+                code = validation.corrected_code
+            
+            # If there are critical errors, we could retry or raise
+            # For now, we return the best code we have
+            if not validation.is_valid and validation.errors:
+                # Log errors but don't fail - let execution catch real issues
+                pass
+        
+        return code
     
     def _build_prompt(
         self, 
@@ -74,10 +94,18 @@ class LLMService:
         system_prompt = CADQUERY_SYSTEM_PROMPT
         user_prompt = prompt
         
+        # Add library patterns based on prompt content
+        library_patterns = get_relevant_patterns(prompt)
+        if library_patterns:
+            system_prompt = system_prompt + "\n\n" + library_patterns
+        
         # Add context parts if provided
         context_section = ""
         if context_parts:
-            system_prompt = CADQUERY_CONTEXT_PROMPT
+            base_prompt = CADQUERY_CONTEXT_PROMPT
+            if library_patterns:
+                base_prompt = base_prompt + "\n\n" + library_patterns
+            system_prompt = base_prompt
             context_section = "## Pièces existantes dans le projet\n\n"
             for name, code in context_parts:
                 context_section += f"### {name}\n```python\n{code}\n```\n\n"
@@ -85,7 +113,10 @@ class LLMService:
         if existing_code:
             # Edit mode
             if not context_parts:
-                system_prompt = CADQUERY_EDIT_PROMPT
+                base_prompt = CADQUERY_EDIT_PROMPT
+                if library_patterns:
+                    base_prompt = base_prompt + "\n\n" + library_patterns
+                system_prompt = base_prompt
             user_prompt = f"""{context_section}Code actuel à modifier:
 ```python
 {existing_code}

@@ -305,4 +305,107 @@ export async function generateProject(
   return response.data
 }
 
+// Agent-based generation
+export interface AgentMessage {
+  role: string
+  content: string
+  data: Record<string, any>
+}
+
+export interface AgentGenerateResponse {
+  success: boolean
+  code: string | null
+  bounding_box: BoundingBox | null
+  validation: {
+    valid: boolean
+    errors: string[]
+    warnings: string[]
+  } | null
+  suggestions: string[]
+  iterations: number
+  messages: AgentMessage[]
+  error: string | null
+}
+
+export async function generatePartWithAgents(
+  partId: string,
+  prompt: string,
+  provider?: LLMProvider,
+  model?: string | null,
+  existingCode?: string | null,
+  contextParts?: { name: string; code: string }[],
+  useOptimization: boolean = true,
+  useReview: boolean = false,
+  printerSettings?: Record<string, any>
+): Promise<Part> {
+  const response = await api.post(`/parts/${partId}/generate-with-agents`, {
+    prompt,
+    provider,
+    model: model || undefined,
+    existing_code: existingCode || undefined,
+    context_parts: contextParts || undefined,
+    use_optimization: useOptimization,
+    use_review: useReview,
+    printer_settings: printerSettings || undefined
+  })
+  return response.data
+}
+
+export async function generatePartWithImage(
+  partId: string,
+  prompt: string,
+  image: File,
+  provider?: LLMProvider,
+  model?: string | null,
+  useOptimization: boolean = true
+): Promise<Part> {
+  const formData = new FormData()
+  formData.append('prompt', prompt)
+  formData.append('image', image)
+  if (provider) formData.append('provider', provider)
+  if (model) formData.append('model', model)
+  formData.append('use_optimization', String(useOptimization))
+  
+  const response = await api.post(`/parts/${partId}/generate-with-image`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return response.data
+}
+
+export interface ImageAnalysis {
+  shape_description: string
+  estimated_dimensions: {
+    length: number
+    width: number
+    height: number
+  }
+  features: string[]
+  complexity: 'simple' | 'medium' | 'complex'
+  suggested_primitives: string[]
+  printability_notes: string
+  recommended_approach: string
+}
+
+export async function analyzeImageForDesign(
+  image: File,
+  prompt?: string,
+  provider?: LLMProvider,
+  model?: string | null
+): Promise<{ success: boolean; analysis: ImageAnalysis | { raw_response: string } }> {
+  const formData = new FormData()
+  formData.append('image', image)
+  if (prompt) formData.append('prompt', prompt)
+  if (provider) formData.append('provider', provider)
+  if (model) formData.append('model', model)
+  
+  const response = await api.post('/analyze-image', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return response.data
+}
+
 export default api

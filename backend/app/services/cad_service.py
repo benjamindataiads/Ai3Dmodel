@@ -27,22 +27,35 @@ class CadService:
 import sys
 import json
 
-# Restrict imports
-allowed_modules = {{"cadquery", "math", "numpy"}}
-
-# Execute the user code
+# Execute the user code with extended library support
 try:
     import cadquery as cq
     import math
+    import numpy as np
+    
+    # CadQuery extension libraries (imported on demand based on code)
+    # cq-warehouse: fasteners, bearings, threads
+    # cq_gears: gear generation
+    # cq-gridfinity: gridfinity bins
+    # cq-kit: utilities
     
     # User code
 {self._indent_code(code, 4)}
     
-    # Get bounding box
+    # Get bounding box - handle both Workplane and Shape objects
     if hasattr(result, 'val'):
         shape = result.val()
-    else:
+    elif hasattr(result, 'wrapped'):
+        shape = result.wrapped
+    elif hasattr(result, 'BoundingBox'):
         shape = result
+    else:
+        # Try to get shape from build() if it's a library object
+        if hasattr(result, 'build'):
+            built = result.build()
+            shape = built.val() if hasattr(built, 'val') else built
+        else:
+            shape = result
     
     bbox = shape.BoundingBox()
     output = {{
@@ -55,9 +68,11 @@ try:
     }}
     print(json.dumps(output))
 except Exception as e:
+    import traceback
     output = {{
         "success": False,
-        "error": str(e)
+        "error": str(e),
+        "traceback": traceback.format_exc()
     }}
     print(json.dumps(output))
 '''
@@ -77,17 +92,25 @@ try:
     import cadquery as cq
     from cadquery import exporters
     import math
+    import numpy as np
     
     # User code
 {self._indent_code(code, 4)}
     
+    # Handle different result types from libraries
+    export_shape = result
+    if hasattr(result, 'build'):
+        # Library objects like cq_gears.SpurGear need to call build()
+        export_shape = result.build()
+    
     # Export to STL
-    exporters.export(result, "{stl_path}")
+    exporters.export(export_shape, "{stl_path}")
     
     output = {{"success": True, "path": "{stl_path}"}}
     print(json.dumps(output))
 except Exception as e:
-    output = {{"success": False, "error": str(e)}}
+    import traceback
+    output = {{"success": False, "error": str(e), "traceback": traceback.format_exc()}}
     print(json.dumps(output))
 '''
         

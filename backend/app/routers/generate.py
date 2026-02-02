@@ -1,8 +1,9 @@
 import json
 import re
+import base64
 from uuid import UUID
 from typing import Literal
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,10 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import Part, Project
 from app.models.part import PartStatus
-from app.schemas import PartResponse, PartGenerateRequest, ProjectResponse
+from app.schemas import PartResponse, PartGenerateRequest, ProjectResponse, ContextPart
 from app.services.llm_service import llm_service, OPENAI_MODELS, ANTHROPIC_MODELS, DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL
 from app.services.cad_service import cad_service
 from app.services.parameter_service import parameter_service
+from app.services.agent_service import agent_service
 from app.config import settings
 
 router = APIRouter()
@@ -142,6 +144,233 @@ async def generate_part_code(
     await db.commit()
     await db.refresh(part)
     return part
+
+
+# Agent-based generation schemas
+class AgentMessage(BaseModel):
+    role: str
+    content: str
+    data: dict = {}
+
+
+class AgentGenerateRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    provider: Literal["openai", "anthropic"] | None = None
+    model: str | None = None
+    existing_code: str | None = None
+    context_parts: list[ContextPart] | None = None
+    use_optimization: bool = True
+    use_review: bool = False
+    printer_settings: dict | None = None
+
+
+class AgentGenerateResponse(BaseModel):
+    success: bool
+    code: str | None
+    bounding_box: dict | None
+    validation: dict | None
+    suggestions: list[str]
+    iterations: int
+    messages: list[AgentMessage]
+    error: str | None
+
+
+@router.post("/parts/{part_id}/generate-with-agents", response_model=PartResponse)
+async def generate_part_with_agents(
+    part_id: UUID,
+    request: AgentGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate CadQuery code using multi-agent system for better quality."""
+    query = select(Part).where(Part.id == part_id)
+    result = await db.execute(query)
+    part = result.scalar_one_or_none()
+    
+    if not part:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Part not found",
+        )
+    
+    provider = request.provider or settings.default_llm_provider
+    
+    try:
+        context_parts = None
+        if request.context_parts:
+            context_parts = [(p.name, p.code) for p in request.context_parts]
+        
+        # Run agent pipeline
+        agent_result = await agent_service.generate_with_agents(
+            prompt=request.prompt,
+            provider=provider,
+            model=request.model,
+            existing_code=request.existing_code,
+            context_parts=context_parts,
+            printer_settings=request.printer_settings,
+            use_optimization=request.use_optimization,
+            use_review=request.use_review,
+        )
+        
+        if agent_result["success"] and agent_result["code"]:
+            part.code = agent_result["code"]
+            part.prompt = request.prompt
+            part.bounding_box = agent_result["bounding_box"]
+            part.status = PartStatus.GENERATED
+            part.error_message = None
+            
+            # Extract parameters
+            params = parameter_service.extract_parameters(agent_result["code"])
+            part.parameters = params
+        else:
+            part.status = PartStatus.ERROR
+            part.error_message = agent_result.get("error") or "Agent generation failed"
+            
+    except Exception as e:
+        part.status = PartStatus.ERROR
+        part.error_message = str(e)
+    
+    await db.commit()
+    await db.refresh(part)
+    return part
+
+
+@router.post("/parts/{part_id}/generate-with-image", response_model=PartResponse)
+async def generate_part_with_image(
+    part_id: UUID,
+    prompt: str = Form(...),
+    image: UploadFile = File(...),
+    provider: str = Form(None),
+    model: str = Form(None),
+    use_optimization: bool = Form(True),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate CadQuery code from an image and description using vision AI."""
+    query = select(Part).where(Part.id == part_id)
+    result = await db.execute(query)
+    part = result.scalar_one_or_none()
+    
+    if not part:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Part not found",
+        )
+    
+    # Validate image type
+    allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+    if image.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid image type. Allowed: {', '.join(allowed_types)}",
+        )
+    
+    # Read and encode image
+    image_content = await image.read()
+    image_data = base64.b64encode(image_content).decode("utf-8")
+    image_mime_type = image.content_type
+    
+    provider_to_use = provider or settings.default_llm_provider
+    
+    try:
+        # Run agent pipeline with image
+        agent_result = await agent_service.generate_with_agents(
+            prompt=prompt,
+            provider=provider_to_use,
+            model=model,
+            image_data=image_data,
+            image_mime_type=image_mime_type,
+            use_optimization=use_optimization,
+            use_review=True,  # Enable review when image is provided
+        )
+        
+        if agent_result["success"] and agent_result["code"]:
+            part.code = agent_result["code"]
+            part.prompt = f"[Image] {prompt}"
+            part.bounding_box = agent_result["bounding_box"]
+            part.status = PartStatus.GENERATED
+            part.error_message = None
+            
+            params = parameter_service.extract_parameters(agent_result["code"])
+            part.parameters = params
+        else:
+            part.status = PartStatus.ERROR
+            part.error_message = agent_result.get("error") or "Image-based generation failed"
+            
+    except Exception as e:
+        part.status = PartStatus.ERROR
+        part.error_message = str(e)
+    
+    await db.commit()
+    await db.refresh(part)
+    return part
+
+
+@router.post("/analyze-image")
+async def analyze_image_for_design(
+    image: UploadFile = File(...),
+    prompt: str = Form(""),
+    provider: str = Form(None),
+    model: str = Form(None),
+):
+    """Analyze an image and return design suggestions without generating code."""
+    from app.prompts.agent_prompts import DESIGN_WITH_IMAGE_PROMPT
+    
+    allowed_types = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+    if image.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid image type. Allowed: {', '.join(allowed_types)}",
+        )
+    
+    image_content = await image.read()
+    image_data = base64.b64encode(image_content).decode("utf-8")
+    
+    provider_to_use = provider or settings.default_llm_provider
+    
+    analysis_prompt = f"""Analyse cette image pour la conception 3D.
+
+{f"Contexte additionnel: {prompt}" if prompt else ""}
+
+Décris:
+1. La forme générale de l'objet
+2. Les dimensions estimées (en mm)
+3. Les features visibles (trous, rainures, etc.)
+4. La complexité pour l'impression 3D
+5. Les primitives CadQuery à utiliser
+
+Réponds en JSON:
+{{
+  "shape_description": "...",
+  "estimated_dimensions": {{"length": X, "width": Y, "height": Z}},
+  "features": ["..."],
+  "complexity": "simple|medium|complex",
+  "suggested_primitives": ["box", "cylinder", etc.],
+  "printability_notes": "...",
+  "recommended_approach": "..."
+}}"""
+    
+    try:
+        response = await agent_service._generate_with_vision(
+            analysis_prompt,
+            "Tu es un expert en analyse d'images pour la conception 3D. Tu identifies les formes, dimensions et caractéristiques des objets pour leur reproduction en CAO.",
+            image_data,
+            image.content_type,
+            provider_to_use,
+            model,
+        )
+        
+        # Try to parse as JSON
+        json_match = re.search(r'\{[\s\S]*\}', response)
+        if json_match:
+            analysis = json.loads(json_match.group())
+            return {"success": True, "analysis": analysis}
+        else:
+            return {"success": True, "analysis": {"raw_response": response}}
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Image analysis failed: {str(e)}",
+        )
 
 
 @router.post("/assembly/position", response_model=AssemblyResponse)

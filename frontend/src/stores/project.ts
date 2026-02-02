@@ -262,6 +262,36 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  async function generateCodeWithAgents(
+    partId: string, 
+    prompt: string, 
+    provider?: string,
+    model?: string | null,
+    existingCode?: string | null,
+    contextParts?: { name: string; code: string }[]
+  ) {
+    loading.value = true
+    error.value = null
+    try {
+      currentPart.value = await api.generatePartWithAgents(
+        partId,
+        prompt,
+        provider as any,
+        model,
+        existingCode,
+        contextParts,
+        true,  // use optimization
+        false  // use review (only with image)
+      )
+      syncPartInProject(currentPart.value)
+    } catch (e: any) {
+      error.value = e.message || 'Failed to generate code with agents'
+      throw e
+    } finally {
+      loading.value = false
+    }
+  }
+
   async function updateParameters(partId: string, parameters: Record<string, number>) {
     loading.value = true
     error.value = null
@@ -321,6 +351,7 @@ export const useProjectStore = defineStore('project', () => {
     updatePartCode,
     executePartCode,
     generateCode,
+    generateCodeWithAgents,
     updateParameters,
     deletePart,
   }
