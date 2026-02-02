@@ -19,15 +19,20 @@ from typing import Literal
 from app.config import settings
 
 
-def get_fast_model(provider: str) -> str:
-    """Get the fast model for agent conversations (cheap & fast)."""
-    if provider == "anthropic":
-        return "claude-haiku-4-5-20251001"
-    return "gpt-5-nano"
+def get_fast_model() -> tuple[str, str]:
+    """Get the fast model for agent conversations (cheap & fast).
+    
+    Always uses Anthropic Haiku for conversations - faster and cheaper.
+    Returns (provider, model) tuple.
+    """
+    return ("anthropic", "claude-haiku-4-5-20251001")
 
 
 def get_best_model(provider: str) -> str:
-    """Get the best model for final code generation (most capable)."""
+    """Get the best model for final code generation (most capable).
+    
+    Uses the user's selected provider for final generation.
+    """
     if provider == "anthropic":
         return "claude-opus-4-5-20251101"
     return "gpt-5.2-pro"
@@ -463,12 +468,12 @@ Réponds en JSON:
 }}"""
         
         try:
-            # Use fast model for agent conversations
-            fast_model = get_fast_model(provider)
+            # Use fast model for agent conversations (always Anthropic Haiku)
+            fast_provider, fast_model = get_fast_model()
             response = await llm_service.generate_raw(
                 prompt,
                 REQUIREMENTS_AGENT_PROMPT,
-                provider,
+                fast_provider,
                 fast_model,
                 max_tokens=2000,
             )
@@ -562,10 +567,10 @@ Réponds en JSON:
 }}"""
         
         try:
-            # Use fast model for agent analysis
-            fast_model = get_fast_model(provider)
+            # Use fast model for agent analysis (always Anthropic Haiku)
+            fast_provider, fast_model = get_fast_model()
             designer_response = await llm_service.generate_raw(
-                designer_prompt, DESIGNER_AGENT_PROMPT, provider, fast_model, max_tokens=1500
+                designer_prompt, DESIGNER_AGENT_PROMPT, fast_provider, fast_model, max_tokens=1500
             )
             json_match = re.search(r'\{[\s\S]*\}', designer_response)
             if json_match:
@@ -596,7 +601,7 @@ Réponds en JSON:
             
             try:
                 physics_response = await llm_service.generate_raw(
-                    physics_prompt, PHYSICS_AGENT_PROMPT, provider, fast_model, max_tokens=1500
+                    physics_prompt, PHYSICS_AGENT_PROMPT, fast_provider, fast_model, max_tokens=1500
                 )
                 json_match = re.search(r'\{[\s\S]*\}', physics_response)
                 if json_match:
@@ -628,7 +633,7 @@ Réponds en JSON:
         
         try:
             manufacturing_response = await llm_service.generate_raw(
-                manufacturing_prompt, MANUFACTURING_AGENT_PROMPT, provider, fast_model, max_tokens=1500
+                manufacturing_prompt, MANUFACTURING_AGENT_PROMPT, fast_provider, fast_model, max_tokens=1500
             )
             json_match = re.search(r'\{[\s\S]*\}', manufacturing_response)
             if json_match:
@@ -869,10 +874,10 @@ Réponds en JSON:
 }}"""
         
         try:
-            # Use fast model for agent conversations
-            fast_model = get_fast_model(provider)
+            # Use fast model for agent conversations (always Anthropic Haiku)
+            fast_provider, fast_model = get_fast_model()
             response = await llm_service.generate_raw(
-                prompt, COORDINATOR_AGENT_PROMPT, provider, fast_model, max_tokens=1000
+                prompt, COORDINATOR_AGENT_PROMPT, fast_provider, fast_model, max_tokens=1000
             )
             json_match = re.search(r'\{[\s\S]*\}', response)
             if json_match:
