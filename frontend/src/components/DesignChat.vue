@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, computed } from 'vue'
+import { ref, nextTick } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
-import * as api from '@/services/api'
 import AttachmentManager from './AttachmentManager.vue'
 import type { Attachment } from './AttachmentManager.vue'
 
@@ -185,33 +184,6 @@ async function sendMessage() {
   }
 }
 
-// Quick action (for buttons)
-async function quickAction(action: string) {
-  if (!sessionId.value || loading.value) return
-  
-  loading.value = true
-  
-  try {
-    const res = await fetch(`/api/conversations/${sessionId.value}/quick-action?action=${action}&provider=${settingsStore.llmProvider}`, {
-      method: 'POST',
-    })
-    const response = await res.json()
-    
-    messages.value = response.messages
-    requirements.value = response.requirements
-    phase.value = response.phase
-    generatedCode.value = response.code
-    isComplete.value = response.complete
-    
-    scrollToBottom()
-    
-  } catch (e) {
-    console.error('Failed to execute action:', e)
-  } finally {
-    loading.value = false
-  }
-}
-
 // Apply generated code to part
 async function applyCode() {
   if (!sessionId.value || !generatedCode.value || !props.partId) return
@@ -236,10 +208,6 @@ async function applyCode() {
 }
 
 // Image handling
-function triggerImageUpload() {
-  imageInput.value?.click()
-}
-
 function handleImageSelect(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -277,12 +245,6 @@ function scrollToBottom() {
     }
   })
 }
-
-// Get last question options
-const lastQuestionOptions = computed(() => {
-  const lastMessage = [...messages.value].reverse().find(m => m.type === 'question')
-  return lastMessage?.data?.options || []
-})
 
 // Handle Enter key
 function handleKeydown(e: KeyboardEvent) {

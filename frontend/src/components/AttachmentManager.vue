@@ -45,7 +45,7 @@ function handleFileSelect(event: Event) {
   
   if (!files) return
   
-  Array.from(files).forEach((file, index) => {
+  Array.from(files).forEach((file) => {
     if (attachments.value.length >= maxAttachments.value) return
     
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']

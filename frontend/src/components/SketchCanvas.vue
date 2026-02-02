@@ -104,12 +104,9 @@ function getPosition(e: MouseEvent | Touch): { x: number; y: number } {
   const scaleX = canvas.value.width / rect.width
   const scaleY = canvas.value.height / rect.height
   
-  const clientX = 'clientX' in e ? e.clientX : e.clientX
-  const clientY = 'clientY' in e ? e.clientY : e.clientY
-  
   return {
-    x: (clientX - rect.left) * scaleX,
-    y: (clientY - rect.top) * scaleY,
+    x: (e.clientX - rect.left) * scaleX,
+    y: (e.clientY - rect.top) * scaleY,
   }
 }
 
