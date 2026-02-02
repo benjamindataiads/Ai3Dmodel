@@ -25,8 +25,17 @@ ANTHROPIC_MODELS = {
     "claude-haiku-4-5-20251001": "Haiku 4.5 (Fast)",
 }
 
+# Default models for different use cases
 DEFAULT_OPENAI_MODEL = "gpt-5.2"
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929"
+
+# Fast models for agent conversations (cheaper, faster)
+FAST_OPENAI_MODEL = "gpt-5-nano"
+FAST_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+
+# Best models for final code generation (most capable)
+BEST_OPENAI_MODEL = "gpt-5.2-pro"
+BEST_ANTHROPIC_MODEL = "claude-opus-4-5-20251101"
 
 
 class LLMService:

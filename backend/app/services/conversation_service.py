@@ -3,6 +3,10 @@ Conversational multi-agent system for interactive 3D model design.
 
 This system enables agents to communicate with users, ask clarifying questions,
 and collaboratively refine designs through dialogue.
+
+Model strategy:
+- Fast models (Haiku/Nano) for agent conversations (questions, analysis)
+- Best models (Opus/GPT-5.2 Pro) for final code generation
 """
 import json
 import re
@@ -13,6 +17,20 @@ from enum import Enum
 from typing import Literal
 
 from app.config import settings
+
+
+def get_fast_model(provider: str) -> str:
+    """Get the fast model for agent conversations (cheap & fast)."""
+    if provider == "anthropic":
+        return "claude-haiku-4-5-20251001"
+    return "gpt-5-nano"
+
+
+def get_best_model(provider: str) -> str:
+    """Get the best model for final code generation (most capable)."""
+    if provider == "anthropic":
+        return "claude-opus-4-5-20251101"
+    return "gpt-5.2-pro"
 
 
 class AgentRole(str, Enum):
@@ -445,11 +463,13 @@ Réponds en JSON:
 }}"""
         
         try:
+            # Use fast model for agent conversations
+            fast_model = get_fast_model(provider)
             response = await llm_service.generate_raw(
                 prompt,
                 REQUIREMENTS_AGENT_PROMPT,
                 provider,
-                model,
+                fast_model,
                 max_tokens=2000,
             )
             
@@ -542,8 +562,10 @@ Réponds en JSON:
 }}"""
         
         try:
+            # Use fast model for agent analysis
+            fast_model = get_fast_model(provider)
             designer_response = await llm_service.generate_raw(
-                designer_prompt, DESIGNER_AGENT_PROMPT, provider, model, max_tokens=1500
+                designer_prompt, DESIGNER_AGENT_PROMPT, provider, fast_model, max_tokens=1500
             )
             json_match = re.search(r'\{[\s\S]*\}', designer_response)
             if json_match:
@@ -574,7 +596,7 @@ Réponds en JSON:
             
             try:
                 physics_response = await llm_service.generate_raw(
-                    physics_prompt, PHYSICS_AGENT_PROMPT, provider, model, max_tokens=1500
+                    physics_prompt, PHYSICS_AGENT_PROMPT, provider, fast_model, max_tokens=1500
                 )
                 json_match = re.search(r'\{[\s\S]*\}', physics_response)
                 if json_match:
@@ -606,7 +628,7 @@ Réponds en JSON:
         
         try:
             manufacturing_response = await llm_service.generate_raw(
-                manufacturing_prompt, MANUFACTURING_AGENT_PROMPT, provider, model, max_tokens=1500
+                manufacturing_prompt, MANUFACTURING_AGENT_PROMPT, provider, fast_model, max_tokens=1500
             )
             json_match = re.search(r'\{[\s\S]*\}', manufacturing_response)
             if json_match:
@@ -677,13 +699,17 @@ Réponds en JSON:
         provider: str,
         model: str | None,
     ) -> dict:
-        """Start the actual design/code generation phase."""
+        """Start the actual design/code generation phase.
+        
+        Uses the BEST model (Opus 4.5 / GPT-5.2 Pro) for final code generation,
+        regardless of what model was used for conversations.
+        """
         from app.services.agent_service import agent_service
         
         session.add_message(
             type=MessageType.AGENT,
             agent_role=AgentRole.ENGINEER,
-            content="Je commence la conception. Cela peut prendre quelques instants...",
+            content="Je commence la conception avec notre meilleur modèle. Cela peut prendre quelques instants...",
         )
         
         # Build comprehensive prompt from requirements
@@ -693,11 +719,14 @@ Réponds en JSON:
         images = session.get_all_images()
         has_visuals = len(images) > 0
         
+        # Use BEST model for final code generation (Opus 4.5 / GPT-5.2 Pro)
+        best_model = get_best_model(provider)
+        
         # Use agent service for generation
         result = await agent_service.generate_with_agents(
             prompt=design_prompt,
             provider=provider,
-            model=model,
+            model=best_model,
             image_data=images if images else None,
             image_mime_type=None,  # Handled in images list
             context_parts=session.context_parts,
@@ -840,8 +869,10 @@ Réponds en JSON:
 }}"""
         
         try:
+            # Use fast model for agent conversations
+            fast_model = get_fast_model(provider)
             response = await llm_service.generate_raw(
-                prompt, COORDINATOR_AGENT_PROMPT, provider, model, max_tokens=1000
+                prompt, COORDINATOR_AGENT_PROMPT, provider, fast_model, max_tokens=1000
             )
             json_match = re.search(r'\{[\s\S]*\}', response)
             if json_match:

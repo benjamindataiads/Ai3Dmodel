@@ -7,6 +7,10 @@ Agents:
 - Validation Agent: Checks for errors and 3D printing compatibility
 - Optimization Agent: Improves design for 3D printing
 - Review Agent: Compares result to original intent using vision
+
+Model strategy:
+- Fast models (Haiku/Nano) for validation, analysis, and review
+- Best models (Opus/GPT-5.2 Pro) for actual code generation
 """
 import asyncio
 import base64
@@ -20,6 +24,20 @@ from app.config import settings
 from app.services.llm_service import llm_service
 from app.services.cad_service import cad_service
 from app.services.validation_service import code_validator
+
+
+def get_fast_model(provider: str) -> str:
+    """Get the fast model for validation/analysis (cheap & fast)."""
+    if provider == "anthropic":
+        return "claude-haiku-4-5-20251001"
+    return "gpt-5-nano"
+
+
+def get_best_model(provider: str) -> str:
+    """Get the best model for code generation (most capable)."""
+    if provider == "anthropic":
+        return "claude-opus-4-5-20251101"
+    return "gpt-5.2-pro"
 
 
 class AgentRole(str, Enum):
@@ -272,11 +290,13 @@ Vérifie:
 
 Réponds en JSON: {{"issues": [...], "suggestions": [...]}}"""
 
+                # Use fast model for validation analysis
+                fast_model = get_fast_model(provider)
                 review_response = await llm_service.generate_raw(
                     review_prompt,
                     VALIDATION_AGENT_PROMPT,
                     provider,
-                    model,
+                    fast_model,
                     max_tokens=1000,
                 )
                 
@@ -339,11 +359,13 @@ Assure-toi que:
 Retourne UNIQUEMENT le code Python optimisé."""
 
         try:
+            # Use fast model for optimization - just tweaking existing code
+            fast_model = get_fast_model(provider)
             optimized_code = await llm_service.generate_raw(
                 optimization_prompt,
                 OPTIMIZATION_AGENT_PROMPT,
                 provider,
-                model,
+                fast_model,
             )
             
             # Extract code
@@ -402,6 +424,9 @@ Note de 1 à 10 et explique les différences potentielles.
 Réponds en JSON: {{"score": X, "matches": true/false, "differences": [...], "suggestions": [...]}}"""
 
         try:
+            # Use fast model for review analysis
+            fast_model = get_fast_model(provider)
+            
             if context.image_data:
                 # Use vision to compare with original image
                 review_response = await self._generate_with_vision(
@@ -410,14 +435,14 @@ Réponds en JSON: {{"score": X, "matches": true/false, "differences": [...], "su
                     context.image_data,
                     context.image_mime_type,
                     provider,
-                    model,
+                    fast_model,
                 )
             else:
                 review_response = await llm_service.generate_raw(
                     review_prompt,
                     REVIEW_AGENT_PROMPT,
                     provider,
-                    model,
+                    fast_model,
                     max_tokens=1000,
                 )
             
